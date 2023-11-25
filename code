@@ -1,0 +1,170 @@
+from matplotlib import pyplot as plt
+import pandas as pd
+import seaborn as sns
+import numpy as np
+
+  # load data
+agri= pd.read_excel(r'C:\Users\Akash Tripathi\Desktop\Round2\Dataset - Copy.xlsx')
+agri
+
+  # checking missing values
+agri.isnull().sum()
+
+  # unique target values
+agri['Class'].unique()
+
+  # checking class imbalance of target variable ['Class']
+class_counts= agri['Class'].value_counts()
+class_counts
+
+---------------------------------------# downsampling target variable
+from sklearn.utils import resample
+desired_count = class_counts.min()
+
+class_dfs = {}
+d_class_dfs = {}
+agri_bal= pd.DataFrame()
+i=0
+for class_label in class_counts.index:
+    class_dfs[class_label] = agri[agri['Class'] == class_label]
+    d_class_dfs[class_label]= resample(class_dfs[class_label], replace=False, n_samples=desired_count, random_state=42)
+
+for class_label in class_counts.index:
+    agri_bal= agri_bal.append(d_class_dfs[class_label], ignore_index= True)
+
+agri_bal['Class'].value_counts()
+
+# updated balanced dataframe
+agri_bal
+
+-----------------------------------#converting categorical to numerical for correlation
+from sklearn.preprocessing import LabelEncoder
+le = LabelEncoder()
+agri_bal['Class']= le.fit_transform(agri_bal['Class'].astype(str))
+agri_bal
+
+  # Access the mapping of string labels to numeric values
+label_mapping = {label: numeric for label, numeric in zip(le.classes_, le.transform(le.classes_))}
+
+  # Print the mapping
+print(label_mapping)
+
+  # check correlation betweeen variables
+agri_bal.corr()
+
+---------------------------------# visualisation of least correlated variable to the target variables and dropping it
+col= ['DFactor2','DFactor6','DFactor9','ShapeFactor3','ShapeFactor4']
+for c in col:
+    agri_bal.plot(kind='scatter', x= c, y='Class')
+    plt.show()
+agri_bal= agri_bal.drop(col, axis=1)
+agri_bal
+
+  # distribution of variables
+for col in agri_bal.columns.values:
+    agri_bal[col].plot(kind='hist')
+    plt.show()
+
+  # no signigicant outliers or skewness in variables thus, moving forward
+
+---------------------------------# standardizing all varibales for comparison
+from sklearn.preprocessing import StandardScaler
+
+target= agri_bal['Class']
+agri_bal.drop('Class', axis=1, inplace=True)
+
+scaler=StandardScaler()
+scaler.fit(agri_bal)
+
+agri_bal_scaled=pd.DataFrame()
+
+features= agri_bal.columns
+agri_bal_scaled[features]= scaler.transform(agri_bal[features])
+agri_bal_scaled
+
+    # balanced and standardized dataframe
+agri_bal_scaled['Class']=target
+agri_bal_scaled
+
+    # variation of other variables with target variable
+for col in agri_bal_scaled.columns.values:
+    agri_bal_scaled.plot(kind='scatter', x= col, y='Class')
+    plt.show()
+
+----------# checking correlation between variables with balanced and scaled dataset
+agri_bal_scaled.corr()
+
+            # very high +ve correlation betweeen perimeter, area, major axis length, DFactor1, DFactor4, DFactor5 and 
+            # -ve correlation with ShapeFactor1
+            # Hence, keeping DFactor5 and drop others
+
+col_drop=['Area','Perimeter','MajorAxisLength','DFactor1', 'DFactor4','ShapeFactor1']
+agri_bal_scaled.drop(col_drop, axis=1, inplace=True)
+agri_bal_scaled
+
+---------------------------------------------------------------# Building RFC, SVC, K-neighbors, Logistic Reg and evaluation to obtain best model
+import numpy as np
+from sklearn.model_selection import cross_val_score, KFold, train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+
+y= agri_bal_scaled['Class']
+X= agri_bal_scaled.drop('Class', axis=1)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+models = {
+    "Random Forest": RandomForestClassifier(),
+    "SVM": SVC(),
+    "K-Nearest Neighbors": KNeighborsClassifier(),
+    "Logistic Regression": LogisticRegression()
+}
+
+# K- fold cross validation
+def evaluate_models(models, X, y, cv=5):
+    results = {}
+    for name, model in models.items():
+        kfold = KFold(n_splits=cv, shuffle=True, random_state=42)
+        scores = cross_val_score(model, X, y, cv=kfold, scoring="accuracy")
+        results[name] = np.mean(scores)
+    return results
+
+results = evaluate_models(models, X_train, y_train)
+
+--------------------------------------------------------------------- # evaluating best model
+best_model = max(results, key=results.get)
+print(f"The best model is {best_model} with a mean accuracy of {results[best_model]:.2f}")
+
+best_model_instance = models[best_model]
+best_model_instance.fit(X_train, y_train)
+y_pred = best_model_instance.predict(X_test)
+test_accuracy = accuracy_score(y_test, y_pred)
+print(f"Test set accuracy for the best model: {test_accuracy:.2f}")
+
+# Predicion on new dataset
+column_drop= ['Area','Perimeter','MajorAxisLength','DFactor1', 'DFactor4','ShapeFactor1']
+
+new_data_std=pd.DataFrame()
+class_pred=[]
+new_data= pd.read_excel(r'C:\Users\Akash Tripathi\Desktop\Round2\new_data.xlsx')
+
+features= new_data.columns
+new_data_std[features] = scaler.transform(new_data[features])
+new_data_std.drop(column_drop, axis=1, inplace=True)
+
+prediction = best_model_instance.predict(new_data_std)
+
+class_dict= {'BA': 0, 'BO': 1, 'CA': 2, 'DE': 3, 'HO': 4, 'SE': 5, 'SI': 6}
+
+def get_key_by_value(dictionary, value):
+    for key, val in dictionary.items():
+        if val == value:
+            return key
+    return None  # Return None if the value is not found in the dictionary
+
+for value in prediction:
+    class_pred.append(get_key_by_value(class_dict, value))
+
+class_pred
